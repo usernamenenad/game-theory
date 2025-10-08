@@ -6,4 +6,5 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "mesa>=3.3.0",
+    "networkx>=3.5",
 ]

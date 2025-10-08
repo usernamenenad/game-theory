@@ -29,10 +29,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "mesa" },
+    { name = "networkx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mesa", specifier = ">=3.3.0" }]
+requires-dist = [
+    { name = "mesa", specifier = ">=3.3.0" },
+    { name = "networkx", specifier = ">=3.5" },
+]
 
 [[package]]
 name = "gast"
@@ -57,6 +61,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d6/95/d56a50fee2b6c7c3c371a96164feb49982a5ac0c64d7990d640480946f92/mesa-3.3.0.tar.gz", hash = "sha256:49b4945a03b88a063d85e6c2674498dff5ee8ed6ef08fcf465370dce75f71722", size = 675585, upload-time = "2025-09-06T20:14:46.549Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6e/57/147b19686c6f12ee3b5395af7887e70079163e7141b8ed462812003762be/mesa-3.3.0-py3-none-any.whl", hash = "sha256:f50039e6e1d3eca4455753205a2440d9d56db01495154ba071903b5b4975e548", size = 239639, upload-time = "2025-09-06T20:14:44.748Z" },
+]
+
+[[package]]
+name = "networkx"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/4f/ccdb8ad3a38e583f214547fd2f7ff1fc160c43a75af88e6aec213404b96a/networkx-3.5.tar.gz", hash = "sha256:d4c6f9cf81f52d69230866796b82afbccdec3db7ae4fbd1b65ea750feed50037", size = 2471065, upload-time = "2025-05-29T11:35:07.804Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/8d/776adee7bbf76365fdd7f2552710282c79a4ead5d2a46408c9043a2b70ba/networkx-3.5-py3-none-any.whl", hash = "sha256:0030d386a9a06dee3565298b4a734b68589749a544acbb6c412dc9e2489ec6ec", size = 2034406, upload-time = "2025-05-29T11:35:04.961Z" },
 ]
 
 [[package]]
