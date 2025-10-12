@@ -37,7 +37,7 @@ class UniSyncAgent(mesa.Agent):
         self.highest = self.unique_id
         self.count = self.model.num_agents  # type: ignore
         self.phase = 1
-        self.id_set = {self.unique_id}
+        self.id_set.add(self.unique_id)
 
         first_collect_message: Message = {
             "message_type": MessageType.COLLECT,
