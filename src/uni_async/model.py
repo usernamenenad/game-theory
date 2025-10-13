@@ -1,29 +1,24 @@
 import random
-from typing import Any
-
 import mesa
 import networkx as nx
-
 from src.uni_async.agent import UniAsyncAgent
 from src.uni_async.network import UniAsyncNetwork
 
 
 class UniAsyncModel(mesa.Model):
-    def __init__(
-        self,
-        N: int,
-        max_message_delay: int = 5,
-    ) -> None:
+    def __init__(self, N: int, max_message_delay: int = 5) -> None:
         super().__init__()
 
         self.num_agents = N
         self.ticks = 0
         self.random_gen = random.Random()
+        self.abort_flag = False
 
-        def delay_fcn(_payload: dict[str, Any]) -> int:
+        def delay_fcn(_payload: dict) -> int:
             return self.random_gen.randint(1, max_message_delay)
 
         self.network = UniAsyncNetwork(self, delay_fcn)
+        self.agent_list: list[UniAsyncAgent] = []
 
         graph = nx.DiGraph()
         for i in range(self.num_agents):
@@ -32,22 +27,33 @@ class UniAsyncModel(mesa.Model):
         self.grid = mesa.space.NetworkGrid(graph)
 
         for i in range(self.num_agents):
-            agent = UniAsyncAgent(self)
-            self.agents.add(agent)
-
-            self.grid.place_agent(agent, i)
+            a = UniAsyncAgent(self)
+            a.unique_id = i
+            self.agent_list.append(a)
+            self.grid.place_agent(a, i)
 
         for i in range(self.num_agents):
-            source_agent_idx = i
-            target_agent_idx = (i + 1) % self.num_agents
+            a = self.agent_list[i]
+            a.successor = self.agent_list[(i + 1) % self.num_agents]
+            a.predecessor = self.agent_list[(i - 1) % self.num_agents]
 
-            self.grid.G.add_edge(source_agent_idx, target_agent_idx)
-            self.agents[source_agent_idx].successor = self.agents[target_agent_idx]  # type: ignore
+        starter = random.choice(self.agent_list)
+        starter.start_protocol()
 
         self.datacollector = mesa.DataCollector(
             agent_reporters={"Leader": "leader", "Phase": "phase"}
         )
 
     def step(self) -> None:
-        self.agents.do("step")
+        if self.abort_flag:
+            return
+        self.network.step()
+        for a in self.agent_list:
+            a.step()
         self.datacollector.collect(self)
+        self.ticks += 1
+
+    def all_finished(self) -> bool:
+        if self.abort_flag:
+            return True
+        return all(a.leader is not None for a in self.agent_list)
