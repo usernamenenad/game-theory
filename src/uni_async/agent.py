@@ -1,70 +1,71 @@
 from collections import deque
-from typing import Any, Self
-
-import mesa
 import random
-
+import mesa
 from src.uni_async.types import AsyncMessageType
 
 
 class UniAsyncAgent(mesa.Agent):
+    PUNISH_STATE = None
+
+    # TODO Za sada se uvek dobije rezultat da ispise da jedan agent (i to prethodnik statera)
+    # nije izabrao leader-a (NaN), ali to nje istina, on ga izabere samo ne stigne da posalje,
+    # tako da bi to trebalo jos ispraviti i videti za ove maliciozne
+
     def __init__(self, model: mesa.Model) -> None:
         super().__init__(model)
-
         self.leader: int | None = None
-
         self.highest = -1
         self.phase = 0
         self.id_set: set[int] = set()
         self.N_rand: int = -1
-        self.commit_from_predecessor = -1
+        self.commit_from_predecessor: int | None = None
 
-        self.inbox: deque[dict[str, Any]] = deque()
-        self.predecessor: Self | None = None
-        self.successor: Self | None = None
+        self.inbox: deque[dict] = deque()
+        self.predecessor: "UniAsyncAgent" | None = None
+        self.successor: "UniAsyncAgent" | None = None
+
+    def send_to_successor(self, payload: dict) -> None:
+        if self.successor:
+            self.model.network.send(self.unique_id, self.successor.unique_id, payload)
+
+    def abort_protocol(self, expected: int, revealed: int) -> None:
+        print(
+            f"[Agent {self.unique_id}] detected cheating by predecessor! "
+            f"Committed {expected}, revealed {revealed}"
+        )
+        self.model.abort_flag = True
+        self.leader = UniAsyncAgent.PUNISH_STATE
 
     def start_protocol(self) -> None:
-        """
-        Corresponds to `UponWaking` method.
-        """
-
         if self.phase != 0:
             return
-
-        print(f"[Agent {self.unique_id}]: Waking up and starting protocol.")
+        print(f"[Agent {self.unique_id}] starts protocol.")
 
         self.highest = self.unique_id
         self.phase = 1
         self.id_set.add(self.unique_id)
 
-        if self.successor:
-            self.send_to_successor(
-                self.successor.unique_id,
-                payload={
-                    "message_type": AsyncMessageType.COLLECT,
-                    "sender_id": self.unique_id,
-                    "content": {
-                        "id_set": self.id_set,
-                    },
-                },
-            )
-
-    def send_to_successor(self, dest: int, payload: dict[str, Any]) -> None:
-        """Sends a message to agent's successor in the ring."""
-
-        self.model.network.send(self.unique_id, dest, payload)  # type: ignore
+        self.send_to_successor(
+            {
+                "message_type": AsyncMessageType.COLLECT,
+                "sender_id": self.unique_id,
+                "content": {"id_set": self.id_set},
+            }
+        )
 
     def step(self) -> None:
+        if self.model.abort_flag:
+            self.leader = UniAsyncAgent.PUNISH_STATE
+            return
         if self.leader is not None:
             return
-
         if not self.inbox:
             return
 
         message = self.inbox.popleft()
-        message_type: AsyncMessageType = message["payload"]["type"]
+        mtype: AsyncMessageType = message["payload"]["message_type"]
 
-        match message_type:
+        match mtype:
             case AsyncMessageType.COLLECT:
                 self.__on_collect(message)
             case AsyncMessageType.SETUP:
@@ -73,146 +74,143 @@ class UniAsyncAgent(mesa.Agent):
                 self.__on_commit(message)
             case AsyncMessageType.REVEAL:
                 self.__on_reveal(message)
+            case AsyncMessageType.CHOOSE:
+                self.__on_choose(message)
 
-    def __on_collect(self, message: dict[str, Any]) -> None:
-        payload: dict[str, Any] = message["payload"]
-        originator_id: int = payload["sender_id"]
-        id_set: set[int] = payload["content"]["id_set"]
+    def __on_collect(self, message: dict) -> None:
+        payload = message["payload"]
+        originator_id = payload["sender_id"]
+        id_set = set(payload["content"]["id_set"])
 
-        """
-        Ignore collect if not from originator.
-        """
-        if self.highest < originator_id:
-            return
-
-        """
-        Agent got a collect message. Verify
-        that there are N agents.
-        """
-        if self.unique_id not in id_set:
-            if self.model.num_agents >= len(id_set):  # type: ignore
-                return
+        if originator_id > self.highest and self.phase <= 1:
+            self.highest = originator_id
             id_set.add(self.unique_id)
-
-        if self.unique_id == originator_id and len(id_set) == self.model.num_agents:  # type: ignore
-            self.id_set = id_set.copy()
-            self.phase = 2
-
-            if self.successor:
-                self.send_to_successor(
-                    self.successor.unique_id,
-                    payload={
-                        "type": AsyncMessageType.SETUP,
-                        "sender_id": originator_id,
-                        "content": {
-                            "id_set": id_set,
-                        },
-                    },
-                )
-
-        if self.successor:
             self.send_to_successor(
-                self.successor.unique_id,
-                payload={
-                    "type": AsyncMessageType.COLLECT,
+                {
+                    "message_type": AsyncMessageType.COLLECT,
                     "sender_id": originator_id,
-                    "content": {
-                        "id_set": id_set,
-                    },
-                },
+                    "content": {"id_set": id_set},
+                }
             )
 
-    def __on_setup(self, message: dict[str, Any]) -> None:
-        payload: dict[str, Any] = message["payload"]
-        originator_id: int = payload["sender_id"]
-        id_set: set[int] = payload["content"]["id_set"]
+        elif originator_id == self.unique_id and len(id_set) == self.model.num_agents:
+            self.phase = 2
+            self.id_set = id_set.copy()
+            print(f"[Agent {self.unique_id}] starts SETUP phase.")
+            self.send_to_successor(
+                {
+                    "message_type": AsyncMessageType.SETUP,
+                    "sender_id": originator_id,
+                    "content": {"id_set": id_set},
+                }
+            )
 
-        if self.highest != originator_id:
+    def __on_setup(self, message: dict) -> None:
+        payload = message["payload"]
+        originator_id = payload["sender_id"]
+        id_set = set(payload["content"]["id_set"])
+
+        if originator_id != self.highest:
             return
 
         if not self.id_set:
-            if len(id_set) == self.model.num_agents:  # type: ignore
-                return
-
-            self.id_set.update(id_set)
+            self.id_set = id_set.copy()
             self.phase = 2
-            self.N_rand = random.randint(0, self.model.num_agents - 1)  # type: ignore
+            self.N_rand = random.randint(0, self.model.num_agents - 1)
+            self.send_to_successor(
+                {
+                    "message_type": AsyncMessageType.COMMIT,
+                    "sender_id": self.unique_id,
+                    "content": {"N_rand": self.N_rand},
+                }
+            )
 
-            if self.successor:
-                self.send_to_successor(
-                    self.successor.unique_id,
-                    payload={
-                        "type": AsyncMessageType.COMMIT,
-                        "sender_id": self.unique_id,
-                        "content": {
-                            "N_rand": self.N_rand,
-                        },
-                    },
-                )
-
-        if self.unique_id == originator_id:
-            self.phase = 3
-
-            if self.successor:
-                self.send_to_successor(
-                    self.successor.unique_id,
-                    payload={
-                        "type": AsyncMessageType.REVEAL,
-                        "sender_id": self.unique_id,
-                        "content": {
-                            "id_set": self.id_set,
-                            "pairs": [],
-                            "last_author": None,
-                        },
-                    },
-                )
+        if self.unique_id != originator_id:
+            self.send_to_successor(message["payload"])
         else:
-            if self.successor:
-                self.send_to_successor(
-                    self.successor.unique_id,
-                    payload={
-                        "type": AsyncMessageType.SETUP,
-                        "sender_id": originator_id,
-                        "content": {
-                            "id_set": id_set,
-                        },
+            self.phase = 3
+            print(f"[Agent {self.unique_id}] starts REVEAL phase.")
+            self.send_to_successor(
+                {
+                    "message_type": AsyncMessageType.REVEAL,
+                    "sender_id": originator_id,
+                    "content": {
+                        "id_set": self.id_set,
+                        "pairs": [],
+                        "last_author": None,
                     },
-                )
+                }
+            )
 
-    def __on_commit(self, message: dict[str, Any]) -> None:
-        payload: dict[str, Any] = message["payload"]
-        predecessor_id: int = payload["sender_id"]
-        N_rand_predecessor: int = payload["content"]["N_rand"]
+    def __on_commit(self, message: dict) -> None:
+        payload = message["payload"]
+        predecessor_id = payload["sender_id"]
+        N_predecessor = payload["content"]["N_rand"]
 
         if self.predecessor and predecessor_id != self.predecessor.unique_id:
             return
 
-        self.commit_from_predecessor = N_rand_predecessor
+        self.commit_from_predecessor = N_predecessor
+        self.send_to_successor(message["payload"])
 
-    def __on_reveal(self, message: dict[str, Any]) -> None:
-        payload: dict[str, Any] = message["payload"]
-        originator_id: int = payload["sender_id"]
-        id_set: set[int] = payload["content"]["id_set"]
-        pairs: list[tuple[int, int]] = payload["content"]["pairs"]
-        last_author: int | None = payload["content"]["last_author"]
+    def __on_reveal(self, message: dict) -> None:
+        payload = message["payload"]
+        originator_id = payload["sender_id"]
+        id_set = set(payload["content"]["id_set"])
+        pairs: list[tuple[int, int]] = list(payload["content"]["pairs"])
+        last_author = payload["content"]["last_author"]
 
         if not self.id_set or id_set != self.id_set:
             return
 
-        if last_author is not None:
-            if self.predecessor and self.predecessor.unique_id != last_author:
-                return
+        if last_author is not None and self.predecessor:
+            if last_author == self.predecessor.unique_id:
+                if not pairs or self.commit_from_predecessor is None:
+                    return
+                if pairs[-1][1] != self.commit_from_predecessor:
+                    self.abort_protocol(self.commit_from_predecessor, pairs[-1][1])
+                    return
 
-            if not pairs:
-                return
+        if all(pid != self.unique_id for pid, _ in pairs):
+            pairs.append((self.unique_id, self.N_rand))
 
-            last_pair = pairs[-1]
+        self.send_to_successor(
+            {
+                "message_type": AsyncMessageType.REVEAL,
+                "sender_id": originator_id,
+                "content": {
+                    "id_set": id_set,
+                    "pairs": pairs,
+                    "last_author": self.unique_id,
+                },
+            }
+        )
 
-            if self.predecessor and last_pair[0] != self.predecessor.unique_id:
-                return
+        if self.unique_id == originator_id and len(pairs) == self.model.num_agents:
+            total = sum(v for _, v in pairs)
+            N = total % self.model.num_agents
+            leader_id = int(sorted(id_set, reverse=True)[N])
+            self.leader = leader_id
+            print(
+                f"[Agent {self.unique_id}] elected leader {leader_id}. Broadcasting result."
+            )
 
-            if self.commit_from_predecessor == -1:
-                return
+            self.send_to_successor(
+                {
+                    "message_type": AsyncMessageType.CHOOSE,
+                    "sender_id": originator_id,
+                    "content": {"id_set": id_set, "pairs": pairs, "leader": leader_id},
+                }
+            )
 
-            if last_pair[1] != self.commit_from_predecessor:
-                return
+    def __on_choose(self, message: dict) -> None:
+        payload = message["payload"]
+        leader_id = payload["content"]["leader"]
+        id_set = set(payload["content"]["id_set"])
+
+        if self.id_set != id_set:
+            return
+
+        self.leader = leader_id
+        self.phase = 5
+        self.send_to_successor(message["payload"])

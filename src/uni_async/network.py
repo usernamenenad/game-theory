@@ -1,20 +1,16 @@
 import heapq
 from typing import Any, Callable
-
 import mesa
-
 from src.uni_async.types import PendingMessage
 
 
 class UniAsyncNetwork:
+
     def __init__(
-        self,
-        model: mesa.Model,
-        delay_fcn: Callable[[dict[str, Any]], int],
+        self, model: mesa.Model, delay_fcn: Callable[[dict[str, Any]], int]
     ) -> None:
         self.model = model
         self.delay_fcn = delay_fcn
-
         self._pq: list[PendingMessage] = []
         self._seq = 0
 

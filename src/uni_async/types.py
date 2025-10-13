@@ -8,6 +8,7 @@ class AsyncMessageType(str, Enum):
     SETUP = "Setup"
     COMMIT = "Commit"
     REVEAL = "Reveal"
+    CHOOSE = "Choose"
 
 
 @dataclass(order=True)

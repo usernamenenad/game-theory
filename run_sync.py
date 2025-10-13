@@ -1,7 +1,7 @@
 from src.uni_sync.model import UniSyncModel
 
 
-def main():
+def run_sync():
     NUM_AGENTS = 5
     MAX_STEPS = NUM_AGENTS * 5
 
@@ -34,4 +34,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_sync()
