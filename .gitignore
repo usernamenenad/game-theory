@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# More
+.DS_Store
+Skraceno Rad.docx
+src/.DS_Store
