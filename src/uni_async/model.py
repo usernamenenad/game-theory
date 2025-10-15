@@ -14,6 +14,9 @@ class UniAsyncModel(mesa.Model):
         self.random_gen = random.Random()
         self.abort_flag = False
 
+        self.starter: UniAsyncAgent | None = None
+        self.received_leader_reports: set[int] = set()
+
         def delay_fcn(_payload: dict) -> int:
             return self.random_gen.randint(1, max_message_delay)
 
@@ -38,22 +41,46 @@ class UniAsyncModel(mesa.Model):
             a.predecessor = self.agent_list[(i - 1) % self.num_agents]
 
         starter = random.choice(self.agent_list)
+        self.starter = starter
         starter.start_protocol()
 
         self.datacollector = mesa.DataCollector(
             agent_reporters={"Leader": "leader", "Phase": "phase"}
         )
 
+    def register_leader_report(self, agent_id: int) -> None:
+        self.received_leader_reports.add(agent_id)
+        print(f"[Model] Starter received leader report from Agent {agent_id}")
+
     def step(self) -> None:
         if self.abort_flag:
             return
+
         self.network.step()
         for a in self.agent_list:
             a.step()
+
         self.datacollector.collect(self)
         self.ticks += 1
+
+        if self.all_finished():
+            if self.abort_flag:
+                print(
+                    f"[Model] ❌ Consensus aborted after {self.ticks} ticks — "
+                    f"cheating was detected and protocol halted."
+                )
+            else:
+                print(
+                    f"[Model] ✅ Consensus complete after {self.ticks} ticks. "
+                    f"All {len(self.received_leader_reports)} leader reports received by starter "
+                    f"(Agent {self.starter.unique_id})."
+                )
 
     def all_finished(self) -> bool:
         if self.abort_flag:
             return True
-        return all(a.leader is not None for a in self.agent_list)
+
+        if not self.starter:
+            return False
+
+        return len(self.received_leader_reports) == self.num_agents

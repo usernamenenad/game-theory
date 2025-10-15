@@ -7,10 +7,6 @@ from src.uni_async.types import AsyncMessageType
 class UniAsyncAgent(mesa.Agent):
     PUNISH_STATE = None
 
-    # TODO Za sada se uvek dobije rezultat da ispise da jedan agent (i to prethodnik statera)
-    # nije izabrao leader-a (NaN), ali to nje istina, on ga izabere samo ne stigne da posalje,
-    # tako da bi to trebalo jos ispraviti i videti za ove maliciozne
-
     def __init__(self, model: mesa.Model) -> None:
         super().__init__(model)
         self.leader: int | None = None
@@ -54,10 +50,9 @@ class UniAsyncAgent(mesa.Agent):
         )
 
     def step(self) -> None:
+        """Handle one tick of this agent."""
         if self.model.abort_flag:
             self.leader = UniAsyncAgent.PUNISH_STATE
-            return
-        if self.leader is not None:
             return
         if not self.inbox:
             return
@@ -194,7 +189,6 @@ class UniAsyncAgent(mesa.Agent):
             print(
                 f"[Agent {self.unique_id}] elected leader {leader_id}. Broadcasting result."
             )
-
             self.send_to_successor(
                 {
                     "message_type": AsyncMessageType.CHOOSE,
@@ -206,6 +200,7 @@ class UniAsyncAgent(mesa.Agent):
     def __on_choose(self, message: dict) -> None:
         payload = message["payload"]
         leader_id = payload["content"]["leader"]
+        sender_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
 
         if self.id_set != id_set:
@@ -214,3 +209,17 @@ class UniAsyncAgent(mesa.Agent):
         self.leader = leader_id
         self.phase = 5
         self.send_to_successor(message["payload"])
+
+        if self == self.model.starter and sender_id != self.unique_id:
+            self.model.register_leader_report(sender_id)
+
+        elif self.model.starter and sender_id != self.model.starter.unique_id:
+            self.model.starter.inbox.append(
+                {
+                    "payload": {
+                        "message_type": AsyncMessageType.CHOOSE,
+                        "sender_id": self.unique_id,
+                        "content": {"leader": leader_id, "id_set": list(self.id_set)},
+                    }
+                }
+            )
