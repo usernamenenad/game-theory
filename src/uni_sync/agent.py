@@ -79,7 +79,7 @@ class UniSyncAgent(mesa.Agent):
                     if self.phase == 0:
                         """
                         Sanity check. Agent is joining the protocol here.
-                        Represents `UponWaking`, 
+                        Represents `UponWaking`,
                         but the agent itself is not the originator.
                         """
 
@@ -116,7 +116,7 @@ class UniSyncAgent(mesa.Agent):
 
                     elif sender_id == self.highest and self.unique_id == self.highest:
                         """
-                        First round trip of the message, 
+                        First round trip of the message,
                         originator got its' message back.
                         Originator checks if the message round trip number
                         is equal to number of agents
@@ -145,7 +145,7 @@ class UniSyncAgent(mesa.Agent):
 
                 case MessageType.SETUP:
                     """
-                    Agents check if the round trip of their 
+                    Agents check if the round trip of their
                     message is equal to number of agents.
                     Also, the sender of the message should be
                     the same as highest agent has seen (a.k.a. originator should've sent the message).
@@ -181,7 +181,7 @@ class UniSyncAgent(mesa.Agent):
 
         if self.phase == 2 and self.count == 0:
             """
-            Originator starts the phase 3 of the protocol. 
+            Originator starts the phase 3 of the protocol.
             Picks a random number and sends it as a separate message.
             """
 

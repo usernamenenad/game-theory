@@ -19,8 +19,8 @@ class UniSyncModel(mesa.Model):
 
         for i in range(self.num_agents):
             agent = UniSyncAgent(self)
+            agent.unique_id = i  # Ensure unique_id matches node id
             self.agents.add(agent)
-
             self.grid.place_agent(agent, i)
 
         for i in range(self.num_agents):
