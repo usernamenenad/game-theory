@@ -2,6 +2,7 @@ from collections import deque
 import random
 import mesa
 from src.uni_async.types import AsyncMessageType
+from typing import Optional
 
 
 class UniAsyncAgent(mesa.Agent):
@@ -9,16 +10,18 @@ class UniAsyncAgent(mesa.Agent):
 
     def __init__(self, model: mesa.Model) -> None:
         super().__init__(model)
-        self.leader: int | None = None
+        self.leader: Optional[int] = None
         self.highest = -1
         self.phase = 0
         self.id_set: set[int] = set()
-        self.N_rand: int = -1
-        self.commit_from_predecessor: int | None = None
-
+        self.N_rand_commit: Optional[int] = None
+        self.N_rand_reveal: Optional[int] = None
+        self.commit_from_predecessor: Optional[int] = None
+        self.commit_records: dict[int, int] = {}
         self.inbox: deque[dict] = deque()
         self.predecessor: "UniAsyncAgent" | None = None
         self.successor: "UniAsyncAgent" | None = None
+        self.is_malicious: bool = False
 
     def send_to_successor(self, payload: dict) -> None:
         if self.successor:
@@ -36,30 +39,25 @@ class UniAsyncAgent(mesa.Agent):
         if self.phase != 0:
             return
         print(f"[Agent {self.unique_id}] starts protocol.")
-
         self.highest = self.unique_id
         self.phase = 1
         self.id_set.add(self.unique_id)
-
         self.send_to_successor(
             {
                 "message_type": AsyncMessageType.COLLECT,
                 "sender_id": self.unique_id,
-                "content": {"id_set": self.id_set},
+                "content": {"id_set": list(self.id_set)},
             }
         )
 
     def step(self) -> None:
-        """Handle one tick of this agent."""
         if self.model.abort_flag:
             self.leader = UniAsyncAgent.PUNISH_STATE
             return
         if not self.inbox:
             return
-
         message = self.inbox.popleft()
         mtype: AsyncMessageType = message["payload"]["message_type"]
-
         match mtype:
             case AsyncMessageType.COLLECT:
                 self.__on_collect(message)
@@ -76,7 +74,6 @@ class UniAsyncAgent(mesa.Agent):
         payload = message["payload"]
         originator_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
-
         if originator_id > self.highest and self.phase <= 1:
             self.highest = originator_id
             id_set.add(self.unique_id)
@@ -84,10 +81,9 @@ class UniAsyncAgent(mesa.Agent):
                 {
                     "message_type": AsyncMessageType.COLLECT,
                     "sender_id": originator_id,
-                    "content": {"id_set": id_set},
+                    "content": {"id_set": list(id_set)},
                 }
             )
-
         elif originator_id == self.unique_id and len(id_set) == self.model.num_agents:
             self.phase = 2
             self.id_set = id_set.copy()
@@ -96,11 +92,12 @@ class UniAsyncAgent(mesa.Agent):
                 {
                     "message_type": AsyncMessageType.SETUP,
                     "sender_id": originator_id,
-                    "content": {"id_set": id_set},
+                    "content": {"id_set": list(id_set)},
                 }
             )
 
     def __on_setup(self, message: dict) -> None:
+
         payload = message["payload"]
         originator_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
@@ -110,13 +107,25 @@ class UniAsyncAgent(mesa.Agent):
 
         if not self.id_set:
             self.id_set = id_set.copy()
+
+        if self.phase < 2 or (self.is_malicious and self.unique_id == originator_id):
             self.phase = 2
-            self.N_rand = random.randint(0, self.model.num_agents - 1)
+            self.N_rand_commit = random.randint(0, self.model.num_agents - 1)
+            if self.is_malicious:
+                diff = random.randint(1, self.model.num_agents - 1)
+                self.N_rand_reveal = (self.N_rand_commit + diff) % self.model.num_agents
+                print(
+                    f"[Agent {self.unique_id}] MALICIOUS: committing {self.N_rand_commit} "
+                    f"but will reveal {self.N_rand_reveal}."
+                )
+            else:
+                self.N_rand_reveal = self.N_rand_commit
+
             self.send_to_successor(
                 {
                     "message_type": AsyncMessageType.COMMIT,
                     "sender_id": self.unique_id,
-                    "content": {"N_rand": self.N_rand},
+                    "content": {"N_rand": self.N_rand_commit},
                 }
             )
 
@@ -130,7 +139,7 @@ class UniAsyncAgent(mesa.Agent):
                     "message_type": AsyncMessageType.REVEAL,
                     "sender_id": originator_id,
                     "content": {
-                        "id_set": self.id_set,
+                        "id_set": list(self.id_set),
                         "pairs": [],
                         "last_author": None,
                     },
@@ -141,11 +150,10 @@ class UniAsyncAgent(mesa.Agent):
         payload = message["payload"]
         predecessor_id = payload["sender_id"]
         N_predecessor = payload["content"]["N_rand"]
-
         if self.predecessor and predecessor_id != self.predecessor.unique_id:
             return
-
         self.commit_from_predecessor = N_predecessor
+        self.commit_records[predecessor_id] = N_predecessor
         self.send_to_successor(message["payload"])
 
     def __on_reveal(self, message: dict) -> None:
@@ -154,10 +162,13 @@ class UniAsyncAgent(mesa.Agent):
         id_set = set(payload["content"]["id_set"])
         pairs: list[tuple[int, int]] = list(payload["content"]["pairs"])
         last_author = payload["content"]["last_author"]
-
         if not self.id_set or id_set != self.id_set:
             return
-
+        for pid, revealed_val in pairs:
+            if pid in self.commit_records:
+                if revealed_val != self.commit_records[pid]:
+                    self.abort_protocol(self.commit_records[pid], revealed_val)
+                    return
         if last_author is not None and self.predecessor:
             if last_author == self.predecessor.unique_id:
                 if not pairs or self.commit_from_predecessor is None:
@@ -165,22 +176,23 @@ class UniAsyncAgent(mesa.Agent):
                 if pairs[-1][1] != self.commit_from_predecessor:
                     self.abort_protocol(self.commit_from_predecessor, pairs[-1][1])
                     return
-
         if all(pid != self.unique_id for pid, _ in pairs):
-            pairs.append((self.unique_id, self.N_rand))
-
+            if self.N_rand_reveal is None:
+                if self.N_rand_commit is None:
+                    self.N_rand_commit = random.randint(0, self.model.num_agents - 1)
+                self.N_rand_reveal = self.N_rand_commit
+            pairs.append((self.unique_id, int(self.N_rand_reveal)))
         self.send_to_successor(
             {
                 "message_type": AsyncMessageType.REVEAL,
                 "sender_id": originator_id,
                 "content": {
-                    "id_set": id_set,
+                    "id_set": list(id_set),
                     "pairs": pairs,
                     "last_author": self.unique_id,
                 },
             }
         )
-
         if self.unique_id == originator_id and len(pairs) == self.model.num_agents:
             total = sum(v for _, v in pairs)
             N = total % self.model.num_agents
@@ -193,7 +205,11 @@ class UniAsyncAgent(mesa.Agent):
                 {
                     "message_type": AsyncMessageType.CHOOSE,
                     "sender_id": originator_id,
-                    "content": {"id_set": id_set, "pairs": pairs, "leader": leader_id},
+                    "content": {
+                        "id_set": list(id_set),
+                        "pairs": pairs,
+                        "leader": leader_id,
+                    },
                 }
             )
 
@@ -202,18 +218,14 @@ class UniAsyncAgent(mesa.Agent):
         leader_id = payload["content"]["leader"]
         sender_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
-
         if self.id_set != id_set:
             return
-
         self.leader = leader_id
         self.phase = 5
         self.send_to_successor(message["payload"])
-
-        if self == self.model.starter and sender_id != self.unique_id:
-            self.model.register_leader_report(sender_id)
-
-        elif self.model.starter and sender_id != self.model.starter.unique_id:
+        if self == self.model.starter:
+            self.model.register_leader_report(self.unique_id)
+        if self.model.starter and self != self.model.starter:
             self.model.starter.inbox.append(
                 {
                     "payload": {
