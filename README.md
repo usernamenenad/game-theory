@@ -2,4 +2,4 @@
 
 ## Documentation
 Full documentation is available on Overleaf:  
-[https://www.overleaf.com/project/68efafd1e47440132e387cd7](https://www.overleaf.com/project/68efafd1e47440132e387cd7)
+[Download full documentation (PDF)](https://drive.google.com/file/d/1NzVkCaWppTPSbBdxcqlfQlLQ7EMZTjQq/view?usp=drive_link)
