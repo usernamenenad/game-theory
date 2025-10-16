@@ -6,9 +6,16 @@ from typing import Optional
 
 
 class UniAsyncAgent(mesa.Agent):
+    """Asynchronous leader election consensus in a unidirectional ring."""
+
     PUNISH_STATE = None
 
     def __init__(self, model: mesa.Model) -> None:
+        """Initialize agent state, communication buffers, and local protocol variables.
+
+        Each agent has a reference to the model, predecessor and successor links,
+        a message inbox, random number commitments, and metadata for detecting cheating.
+        """
         super().__init__(model)
         self.leader: Optional[int] = None
         self.highest = -1
@@ -24,10 +31,20 @@ class UniAsyncAgent(mesa.Agent):
         self.is_malicious: bool = False
 
     def send_to_successor(self, payload: dict) -> None:
+        """Send a message asynchronously to the next agent in the ring.
+
+        Messages are handled by the model’s network, which introduces delivery delay.
+        This function is used by all protocol phases to propagate messages forward.
+        """
         if self.successor:
             self.model.network.send(self.unique_id, self.successor.unique_id, payload)
 
     def abort_protocol(self, expected: int, revealed: int) -> None:
+        """Abort the election if cheating by the predecessor is detected.
+
+        Triggered when a predecessor reveals a value different from its earlier commit.
+        The agent signals this to the model by setting the abort flag.
+        """
         print(
             f"[Agent {self.unique_id}] detected cheating by predecessor! "
             f"Committed {expected}, revealed {revealed}"
@@ -36,6 +53,12 @@ class UniAsyncAgent(mesa.Agent):
         self.leader = UniAsyncAgent.PUNISH_STATE
 
     def start_protocol(self) -> None:
+        """Start the leader election by initiating the COLLECT phase.
+
+        The initiating agent sends a message containing its ID around the ring.
+        Each agent appends its ID; when the initiator receives all IDs, it proceeds
+        to the SETUP phase.
+        """
         if self.phase != 0:
             return
         print(f"[Agent {self.unique_id}] starts protocol.")
@@ -51,6 +74,12 @@ class UniAsyncAgent(mesa.Agent):
         )
 
     def step(self) -> None:
+        """Process one pending message per tick.
+
+        The agent dequeues a message, identifies its type, and delegates handling
+        to the appropriate phase-specific method. If the protocol was aborted,
+        no further actions are taken.
+        """
         if self.model.abort_flag:
             self.leader = UniAsyncAgent.PUNISH_STATE
             return
@@ -71,6 +100,11 @@ class UniAsyncAgent(mesa.Agent):
                 self.__on_choose(message)
 
     def __on_collect(self, message: dict) -> None:
+        """Handle COLLECT messages used to gather all agent IDs.
+
+        Each agent appends its ID and forwards the message. When the originator
+        receives the message containing all unique IDs, it transitions to SETUP.
+        """
         payload = message["payload"]
         originator_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
@@ -97,7 +131,12 @@ class UniAsyncAgent(mesa.Agent):
             )
 
     def __on_setup(self, message: dict) -> None:
+        """Handle SETUP messages and create random commitments.
 
+        Each agent selects a random number (commit) and, if malicious, decides a
+        different reveal value. The commit is sent to the successor, and when the
+        originator gets its SETUP message back, it starts the REVEAL phase.
+        """
         payload = message["payload"]
         originator_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
@@ -147,6 +186,12 @@ class UniAsyncAgent(mesa.Agent):
             )
 
     def __on_commit(self, message: dict) -> None:
+        """Handle COMMIT messages and store predecessor's committed number.
+
+        Each agent records its predecessor’s commit in both local and global
+        dictionaries. This value is later compared with the revealed one for
+        integrity verification during the REVEAL phase.
+        """
         payload = message["payload"]
         predecessor_id = payload["sender_id"]
         N_predecessor = payload["content"]["N_rand"]
@@ -157,6 +202,12 @@ class UniAsyncAgent(mesa.Agent):
         self.send_to_successor(message["payload"])
 
     def __on_reveal(self, message: dict) -> None:
+        """Handle REVEAL messages and verify all commitments.
+
+        Agents check that revealed numbers match previously received commits.
+        If a mismatch is detected, the protocol is aborted and cheating is logged.
+        Once all reveals are collected, the originator computes and announces the leader.
+        """
         payload = message["payload"]
         originator_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
@@ -214,9 +265,14 @@ class UniAsyncAgent(mesa.Agent):
             )
 
     def __on_choose(self, message: dict) -> None:
+        """Handle CHOOSE messages to finalize and distribute the leader decision.
+
+        The elected leader ID is propagated around the ring so all agents agree
+        on the result. Each agent records the leader and reports completion to
+        the model once it receives confirmation.
+        """
         payload = message["payload"]
         leader_id = payload["content"]["leader"]
-        sender_id = payload["sender_id"]
         id_set = set(payload["content"]["id_set"])
         if self.id_set != id_set:
             return
