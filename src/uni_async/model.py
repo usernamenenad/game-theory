@@ -13,11 +13,6 @@ class UniAsyncModel(mesa.Model):
         max_message_delay: int = 5,
         malicious_nodes: int | None = None,
     ) -> None:
-        """
-        malicious_nodes:
-          - None: no malicious nodes
-          - int k: pick k distinct random agents to be malicious
-        """
         super().__init__()
 
         self.num_agents = N
@@ -73,7 +68,7 @@ class UniAsyncModel(mesa.Model):
     def step(self) -> None:
         if self.abort_flag:
             print(
-                f"[Model] ⚠️ Simulation aborted at tick {self.ticks} — cheating detected."
+                f"[Model] ⚠️ Simulation aborted at tick {self.ticks}, cheating detected!"
             )
             return
 
@@ -87,7 +82,7 @@ class UniAsyncModel(mesa.Model):
         if self.all_finished():
             if self.abort_flag:
                 print(
-                    f"[Model] ❌ Consensus aborted after {self.ticks} ticks - cheating was detected."
+                    f"[Model] ❌ Consensus aborted after {self.ticks} ticks, cheating detected!"
                 )
             else:
                 print(
