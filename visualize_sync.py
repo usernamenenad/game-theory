@@ -99,4 +99,6 @@ def visualize_leader_election(num_agents: int = 5, max_steps: int = 30) -> None:
 
 
 if __name__ == "__main__":
-    visualize_leader_election(num_agents=5, max_steps=30)
+    num_agents = 5
+    max_steps = 4 * num_agents + 1
+    visualize_leader_election(num_agents=num_agents, max_steps=max_steps)
