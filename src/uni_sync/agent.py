@@ -158,6 +158,7 @@ class UniSyncAgent(mesa.Agent):
                         sender_id == self.highest
                         and self.phase == 1
                         and self.count == 0
+                        and len(payload) == self.model.num_agents  # type: ignore
                     ):
                         self.leader = UniSyncAgent.PUNISH_STATE
                         return

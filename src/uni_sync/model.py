@@ -38,7 +38,11 @@ class UniSyncModel(mesa.Model):
         starter_agent.start_protocol()  # type: ignore
 
         self.datacollector = mesa.DataCollector(
-            agent_reporters={"Leader": "leader", "Phase": "phase"}
+            agent_reporters={
+                "Phase": "phase",
+                "Random number": "N_rand",
+                "Leader": "leader",
+            }
         )
 
     def buffer_message(self, agent: UniSyncAgent, message: Message):
