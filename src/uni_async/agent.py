@@ -33,7 +33,7 @@ class UniAsyncAgent(mesa.Agent):
     def send_to_successor(self, payload: dict) -> None:
         """Send a message asynchronously to the next agent in the ring.
 
-        Messages are handled by the model’s network, which introduces delivery delay.
+        Messages are handled by the model's network, which introduces delivery delay.
         This function is used by all protocol phases to propagate messages forward.
         """
         if self.successor:
@@ -188,7 +188,7 @@ class UniAsyncAgent(mesa.Agent):
     def __on_commit(self, message: dict) -> None:
         """Handle COMMIT messages and store predecessor's committed number.
 
-        Each agent records its predecessor’s commit in both local and global
+        Each agent records its predecessor's commit in both local and global
         dictionaries. This value is later compared with the revealed one for
         integrity verification during the REVEAL phase.
         """
